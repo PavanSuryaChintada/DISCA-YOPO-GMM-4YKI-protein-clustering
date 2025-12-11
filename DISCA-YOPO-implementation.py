@@ -2,8 +2,9 @@ import numpy as np
 from Bio.PDB import MMCIFParser
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA # NEW: For visualization
-import matplotlib.pyplot as plt # NEW: For plotting
+from sklearn.decomposition import PCA # Updated: Will target 3 components
+import matplotlib.pyplot as plt 
+from mpl_toolkits.mplot3d import Axes3D # NEW: For 3D plotting
 import os
 import random
 import sys
@@ -181,7 +182,7 @@ def disca_clustering_gmm(feature_matrix, K):
     # Check if there are enough samples and features to run GMM
     if feature_matrix.shape[0] < K or feature_matrix.shape[1] == 0:
         print("Warning: Insufficient data to run GMM. Returning None.")
-        return None, None
+        return None, None, None # Ensure 3 returns
         
     # 1. Normalize features (Crucial for GMM convergence)
     scaler = StandardScaler()
@@ -263,59 +264,91 @@ if __name__ == "__main__":
     
     # --- VISUALIZATION: Plotting the Clusters ---
     if cluster_labels is not None:
-        print("\n--- VISUALIZATION: Generating Cluster Plot ---")
         
-        # 1. Reduce features (which are 6-dimensional) to 2D using PCA for plotting
-        pca = PCA(n_components=2)
-        features_2d = pca.fit_transform(features_scaled)
-        
-        plt.figure(figsize=(10, 7))
-        scatter = plt.scatter(
-            features_2d[:, 0], 
-            features_2d[:, 1], 
-            c=cluster_labels, 
-            cmap='viridis', 
-            marker='o',
-            alpha=0.7,
-            edgecolors='k'
-        )
-        
-        # Add Cluster Centers (Mean of each Gaussian)
-        if best_cluster_id is not None:
-            gmm = GaussianMixture(n_components=K_CLUSTERS, covariance_type='full', random_state=42)
-            gmm.fit(features_scaled) # Re-fit to get the center locations
-            centers_2d = pca.transform(gmm.means_)
+        # Check if there are enough features for 3D PCA
+        if features_scaled.shape[1] < 3:
+            print("\nWARNING: Only found 2D features. Cannot generate 3D plot.")
             
-            plt.scatter(
-                centers_2d[:, 0],
-                centers_2d[:, 1],
-                marker='X',
-                s=200,
-                color='red',
-                label='Cluster Centers',
-                edgecolors='k'
-            )
+            # Fallback to the previous 2D plot logic (using PCA to 2 components)
+            pca = PCA(n_components=2)
+            features_2d = pca.fit_transform(features_scaled)
             
-            # Highlight the selected cluster (best_cluster_id)
-            selected_center_2d = centers_2d[best_cluster_id]
-            plt.scatter(
-                selected_center_2d[0],
-                selected_center_2d[1],
-                marker='*',
-                s=500,
-                color='yellow',
-                label=f'Selected Fragment Source (Cluster {best_cluster_id})',
+            plt.figure(figsize=(10, 7))
+            scatter = plt.scatter(features_2d[:, 0], features_2d[:, 1], c=cluster_labels, cmap='viridis', marker='o', alpha=0.7, edgecolors='k')
+            
+            plt.title('DISCA/GMM Clustering (Reduced to 2D by PCA)', fontsize=14)
+            plt.xlabel(f'Principal Component 1 ({pca.explained_variance_ratio_[0]*100:.1f}% Variance)', fontsize=12)
+            plt.ylabel(f'Principal Component 2 ({pca.explained_variance_ratio_[1]*100:.1f}% Variance)', fontsize=12)
+            plt.legend()
+            plt.grid(True, linestyle='--', alpha=0.5)
+            plt.colorbar(scatter, label='Cluster ID')
+            plt.show()
+            
+        else:
+            print("\n--- VISUALIZATION: Generating 3D Cluster Plot ---")
+            
+            # 1. Reduce features (which are >= 3-dimensional) to 3D using PCA for plotting
+            # The current feature vector is 6D, so 3D PCA is fine.
+            pca = PCA(n_components=3)
+            features_3d = pca.fit_transform(features_scaled)
+            
+            fig = plt.figure(figsize=(12, 9))
+            ax = fig.add_subplot(111, projection='3d')
+            
+            # Scatter Plot the data points
+            scatter = ax.scatter(
+                features_3d[:, 0], 
+                features_3d[:, 1], 
+                features_3d[:, 2], 
+                c=cluster_labels, 
+                cmap='viridis', 
+                marker='o',
+                alpha=0.7,
                 edgecolors='k',
-                zorder=10
+                s=50 # size of points
             )
-
-        plt.title('DISCA/GMM Clustering of Conformations (Reduced to 2D by PCA)', fontsize=14)
-        plt.xlabel(f'Principal Component 1 ({pca.explained_variance_ratio_[0]*100:.1f}% Variance)', fontsize=12)
-        plt.ylabel(f'Principal Component 2 ({pca.explained_variance_ratio_[1]*100:.1f}% Variance)', fontsize=12)
-        plt.legend()
-        plt.grid(True, linestyle='--', alpha=0.5)
-        plt.colorbar(scatter, label='Cluster ID')
-        plt.show()
+            
+            # Add Cluster Centers (Mean of each Gaussian)
+            if best_cluster_id is not None:
+                gmm = GaussianMixture(n_components=K_CLUSTERS, covariance_type='full', random_state=42)
+                gmm.fit(features_scaled) # Re-fit to get the center locations
+                centers_3d = pca.transform(gmm.means_)
+                
+                ax.scatter(
+                    centers_3d[:, 0],
+                    centers_3d[:, 1],
+                    centers_3d[:, 2],
+                    marker='X',
+                    s=300,
+                    color='red',
+                    label='Cluster Centers',
+                    edgecolors='k'
+                )
+                
+                # Highlight the selected cluster (best_cluster_id)
+                selected_center_3d = centers_3d[best_cluster_id]
+                ax.scatter(
+                    selected_center_3d[0],
+                    selected_center_3d[1],
+                    selected_center_3d[2],
+                    marker='*',
+                    s=800,
+                    color='yellow',
+                    label=f'Selected Fragment Source (Cluster {best_cluster_id})',
+                    edgecolors='k',
+                    zorder=10
+                )
+            
+            # Set titles and labels
+            ax.set_title('3D DISCA/GMM Clustering of Conformations (Reduced by PCA)', fontsize=16)
+            ax.set_xlabel(f'Principal Component 1 ({pca.explained_variance_ratio_[0]*100:.1f}% Variance)')
+            ax.set_ylabel(f'Principal Component 2 ({pca.explained_variance_ratio_[1]*100:.1f}% Variance)')
+            ax.set_zlabel(f'Principal Component 3 ({pca.explained_variance_ratio_[2]*100:.1f}% Variance)')
+            
+            # Add legend and colorbar
+            ax.legend(loc='upper right')
+            fig.colorbar(scatter, label='Cluster ID', shrink=0.7, aspect=10)
+            plt.show()
 
     # Step 6: Fragmentation (Selecting the Homogeneous Fragment)
     if best_cluster_id is not None and cluster_labels is not None:
